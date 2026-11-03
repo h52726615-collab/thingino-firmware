@@ -1,0 +1,59 @@
+name: build-okam-inst
+permissions:
+  contents: write
+on:
+  workflow_dispatch:
+
+env:
+  BR2_DL_DIR: ~/dl
+  FORCE_UNSAFE_CONFIGURE: 1
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  TAG_NAME: master
+  TERM: linux
+  TZ: UTC
+
+jobs:
+  buildroot:
+    name: okam_bw4g_inst
+    runs-on: ubuntu-26.04-arm
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: debian:forky
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends --no-install-suggests autoconf build-essential bc cmake cpio curl ca-certificates dosfstools file git make gawk jq lzop m4 mtools p7zip-full parted perl python3 python3-gmpy2 python3-setuptools procps rsync tzdata u-boot-tools unzip wget libgmp-dev libncurses-dev swig python3-dev libssl-dev
+
+      - name: Setup gh workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Checkout repository source
+        uses: actions/checkout@v5
+        with:
+          submodules: 'true'
+          ref: "master"
+          fetch-depth: "1"
+
+      - name: Setup cache directories
+        run: |
+          mkdir -p ~/.buildroot-ccache
+          mkdir -p ~/dl
+
+      - name: Build firmware
+        run: |
+          BOARD=okam_bw4g_inst make fast WORKFLOW=1
+
+      - name: Find firmware artifacts
+        run: |
+          ls -la ./output/master/*/images/ 2>/dev/null || true
+          find . -path "*/images/*" -type f | sort
+
+      - name: Upload images
+        uses: actions/upload-artifact@v4
+        with:
+          name: okam-bw4g-inst-images
+          path: output/master/*/images/
+          if-no-files-found: warn
