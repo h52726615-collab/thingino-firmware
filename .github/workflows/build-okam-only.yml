@@ -89,14 +89,15 @@ jobs:
       - name: Find firmware artifacts
         id: find
         run: |
-          FULL_FW=$(find . -name "full.bin" -path "*/output/*" | head -1)
-          FULL_FW_UBOOT=$(find . -name "uboot.bin" -path "*/output/*" | head -1)
-          FULL_FW_KERNEL=$(find . -name "kernel.bin" -path "*/output/*" | head -1)
-          FULL_FW_ROOTFS=$(find . -name "rootfs.squashfs" -path "*/output/*" | head -1)
-          FULL_FW_ROOTFS_TAR=$(find . -name "rootfs.tar" -path "*/output/*" | head -1)
-          FULL_FW_SHA=$(find . -name "full.bin.sha" -path "*/output/*" | head -1)
-          UPDATE_FW=$(find . -name "autoupdate-full.bin" -path "*/output/*" | head -1)
-          UPDATE_FW_SHA=$(find . -name "autoupdate-full.bin.sha" -path "*/output/*" | head -1)
+          # Chercher dans images/ ET output/
+          FULL_FW=$(find . \( -name "full.bin" -o -name "autoupdate-full.bin" \) -path "*/images/*" | head -1)
+          FULL_FW_UBOOT=$(find . -name "u-boot-lzma.img" -path "*/images/*" | head -1)
+          FULL_FW_KERNEL=$(find . -name "uImage" -path "*/images/*" | head -1)
+          FULL_FW_ROOTFS=$(find . -name "rootfs.squashfs" -path "*/images/*" | head -1)
+          FULL_FW_ROOTFS_TAR=$(find . -name "rootfs.tar" -path "*/images/*" | head -1)
+          FULL_FW_SHA=$(find . -name "full.bin.sha" -path "*/images/*" | head -1)
+          UPDATE_FW=$(find . -name "autoupdate-full.bin" -path "*/images/*" | head -1)
+          UPDATE_FW_SHA=$(find . -name "autoupdate-full.bin.sha" -path "*/images/*" | head -1)
           echo "FULL_FW=${FULL_FW}" >> $GITHUB_ENV
           echo "FULL_FW_UBOOT=${FULL_FW_UBOOT}" >> $GITHUB_ENV
           echo "FULL_FW_KERNEL=${FULL_FW_KERNEL}" >> $GITHUB_ENV
@@ -105,27 +106,26 @@ jobs:
           echo "FULL_FW_SHA=${FULL_FW_SHA}" >> $GITHUB_ENV
           echo "UPDATE_FW=${UPDATE_FW}" >> $GITHUB_ENV
           echo "UPDATE_FW_SHA=${UPDATE_FW_SHA}" >> $GITHUB_ENV
-          echo "Found files:"
-          find . -name "*.bin" -path "*/output/*" -o -name "*.squashfs" -path "*/output/*" -o -name "*.tar" -path "*/output/*" | head -20
+          echo "=== Images directory ==="
+          ls -la ./output/master/*/images/ 2>/dev/null || true
+          echo "=== All firmware files ==="
+          find . -path "*/images/*" -type f | sort
 
       - name: Upload compiled firmware artifacts
         uses: actions/upload-artifact@v4
         with:
           name: thingino-okam_bw4g_t23zn_os02n10_aic8800s-firmware
           path: |
-            ${{ env.FULL_FW }}
-            ${{ env.FULL_FW_UBOOT }}
-            ${{ env.FULL_FW_KERNEL }}
-            ${{ env.FULL_FW_ROOTFS }}
-            ${{ env.FULL_FW_ROOTFS_TAR }}
-            ${{ env.FULL_FW_SHA }}
-            ${{ env.UPDATE_FW }}
-            ${{ env.UPDATE_FW_SHA }}
+            output/master/*/images/uImage
+            output/master/*/images/rootfs.squashfs
+            output/master/*/images/u-boot-lzma.img
+            output/master/*/images/autoupdate-full.bin
+            output/master/*/images/full.bin
           if-no-files-found: warn
 
-      - name: Upload all output files
+      - name: Upload all images
         uses: actions/upload-artifact@v4
         with:
           name: thingino-okam_bw4g_t23zn_os02n10_aic8800s-all
-          path: output/
+          path: output/master/*/images/
           if-no-files-found: warn
