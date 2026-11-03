@@ -89,33 +89,23 @@ jobs:
       - name: Find firmware artifacts
         id: find
         run: |
-          # Chercher dans images/ ET output/
-          FULL_FW=$(find . \( -name "full.bin" -o -name "autoupdate-full.bin" \) -path "*/images/*" | head -1)
-          FULL_FW_UBOOT=$(find . -name "u-boot-lzma.img" -path "*/images/*" | head -1)
-          FULL_FW_KERNEL=$(find . -name "uImage" -path "*/images/*" | head -1)
-          FULL_FW_ROOTFS=$(find . -name "rootfs.squashfs" -path "*/images/*" | head -1)
-          FULL_FW_ROOTFS_TAR=$(find . -name "rootfs.tar" -path "*/images/*" | head -1)
-          FULL_FW_SHA=$(find . -name "full.bin.sha" -path "*/images/*" | head -1)
-          UPDATE_FW=$(find . -name "autoupdate-full.bin" -path "*/images/*" | head -1)
-          UPDATE_FW_SHA=$(find . -name "autoupdate-full.bin.sha" -path "*/images/*" | head -1)
-          echo "FULL_FW=${FULL_FW}" >> $GITHUB_ENV
-          echo "FULL_FW_UBOOT=${FULL_FW_UBOOT}" >> $GITHUB_ENV
-          echo "FULL_FW_KERNEL=${FULL_FW_KERNEL}" >> $GITHUB_ENV
-          echo "FULL_FW_ROOTFS=${FULL_FW_ROOTFS}" >> $GITHUB_ENV
-          echo "FULL_FW_ROOTFS_TAR=${FULL_FW_ROOTFS_TAR}" >> $GITHUB_ENV
-          echo "FULL_FW_SHA=${FULL_FW_SHA}" >> $GITHUB_ENV
-          echo "UPDATE_FW=${UPDATE_FW}" >> $GITHUB_ENV
-          echo "UPDATE_FW_SHA=${UPDATE_FW_SHA}" >> $GITHUB_ENV
           echo "=== Images directory ==="
           ls -la ./output/master/*/images/ 2>/dev/null || true
           echo "=== All firmware files ==="
           find . -path "*/images/*" -type f | sort
+          # Chercher le fichier principal (thingino-*.bin ou full.bin ou autoupdate-full.bin)
+          FULL_FW=$(find . \( -name "thingino-*.bin" -o -name "full.bin" -o -name "autoupdate-full.bin" \) -path "*/images/*" | head -1)
+          UPDATE_FW=$(find . -name "autoupdate-full.bin" -path "*/images/*" | head -1)
+          if [ -z "$UPDATE_FW" ] && [ -n "$FULL_FW" ]; then UPDATE_FW="$FULL_FW"; fi
+          echo "FULL_FW=${FULL_FW}" >> $GITHUB_ENV
+          echo "UPDATE_FW=${UPDATE_FW}" >> $GITHUB_ENV
 
       - name: Upload compiled firmware artifacts
         uses: actions/upload-artifact@v4
         with:
           name: thingino-okam_bw4g_t23zn_os02n10_aic8800s-firmware
           path: |
+            output/master/*/images/thingino-*.bin
             output/master/*/images/uImage
             output/master/*/images/rootfs.squashfs
             output/master/*/images/u-boot-lzma.img
