@@ -1,0 +1,174 @@
+#!/bin/sh
+# okam bw4g installer - initramfs init (runs as PID 1)
+# boot logic:
+#   1. mtd3 has squashfs  -> mount + switch_root -> thingino
+#   2. else installer mode: get rootfs.squashfs via wifi (stock stack or ours) -> write mtd3 -> reboot
+#   3. else fallback: mount stock rootfs -> switch_root -> stock system (recoverable)
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+mount -t proc     none /proc  2>/dev/null
+mount -t sysfs    none /sys   2>/dev/null
+mount -t devtmpfs none /dev   2>/dev/null
+mkdir -p /tmp /mnt /newroot /stock /sd
+mount -t tmpfs -o size=20m none /tmp 2>/dev/null
+
+SDLOG=/tmp/install.log
+mount -t vfat -o utf8 /dev/mmcblk0p1 /sd 2>/dev/null && SDLOG=/sd/install.log
+: > $SDLOG 2>/dev/null
+
+log() {
+	echo "inst: $*" > /dev/kmsg 2>/dev/null
+	echo "inst: $*" >> $SDLOG 2>/dev/null
+	sync 2>/dev/null
+}
+ulog() {
+	log "$*"
+	echo "inst: $*" | nc -u -w1 192.168.0.136 9999 >/dev/null 2>&1
+}
+
+# helper: first 4 bytes of an mtdblock as hex
+magic4() {
+	dd if=$1 bs=4 count=1 2>/dev/null | hexdump -e '4/1 "%02x"' 2>/dev/null
+}
+
+boot_rootfs() {
+	# $1 = fs type (or 'auto'), $2 = mount source
+	for t in $1; do
+		mount -t $t -o ro $2 /newroot 2>/dev/null || continue
+		for i in /sbin/init /linuxrc /init; do
+			if [ -x /newroot$i ]; then
+				log "switch_root -> $i ($t)"
+				exec switch_root /newroot $i
+			fi
+		done
+		umount /newroot 2>/dev/null
+	done
+	return 1
+}
+
+log "=== installer start $(uname -r) ==="
+cat /proc/mtd >> $SDLOG 2>/dev/null
+
+MTDROOT=/dev/mtdblock3
+M=$(magic4 $MTDROOT)
+log "mtd3 magic=$M"
+
+# --- stage 1: thingino already installed? ---
+if [ "$M" = "68737173" ]; then
+	log "squashfs found -> boot thingino"
+	boot_rootfs "squashfs" $MTDROOT && exit 0
+	log "squashfs mount failed, continue installer"
+fi
+
+# --- installer mode ---
+IMG_URL="http://192.168.0.136:8888/rootfs.squashfs"
+IMG=/tmp/rootfs.squashfs
+GOT=0
+
+# 5a. try wifi via our own modules (if bundled)
+for m in /modules/*.ko; do [ -f "$m" ] && insmod $m 2>>$SDLOG; done
+
+# 5b. mount stock rootfs -> borrow modules + supplicant + creds
+mount -t jffs2 -o ro $MTDROOT /stock 2>/dev/null || \
+	mount -o ro $MTDROOT /stock 2>/dev/null || true
+if [ -d /stock/lib ]; then
+	log "stock rootfs mounted"
+	find /stock -name '*.ko' >> $SDLOG 2>/dev/null
+	for m in $(find /stock -name '*.ko' 2>/dev/null); do
+		insmod -f $m >>$SDLOG 2>&1
+	done
+	# pull libs+bins we may need
+	[ -d /stock/lib ] && cp -a /stock/lib /tmp/ 2>/dev/null
+	[ -d /stock/usr/lib ] && cp -a /stock/usr/lib /tmp/usr_lib 2>/dev/null
+	# hunt wifi creds in stock config
+	grep -r -l -i 'ssid\|wifi' /stock/etc 2>/dev/null >> $SDLOG
+	find /stock -name 'wpa_supplicant' -o -name 'hostapd' -o -name 'iwlist' -o -name 'iwconfig' >> $SDLOG 2>/dev/null
+else
+	log "no stock rootfs mount"
+fi
+
+# iface present?
+for i in 1 2 3 4 5; do
+	WLAN=$(ls /sys/class/net 2>/dev/null | grep -v lo | head -1)
+	[ -n "$WLAN" ] && break
+	sleep 1
+done
+log "wlan iface: $WLAN"
+ifconfig -a >> $SDLOG 2>&1
+
+if [ -n "$WLAN" ]; then
+	ifconfig $WLAN up >>$SDLOG 2>&1
+	# try supplicant from stock or ours
+	SUP=""
+	for p in /usr/sbin/wpa_supplicant /sbin/wpa_supplicant $(find /stock /tmp -name 'wpa_supplicant' 2>/dev/null); do
+		[ -x "$p" -o -f "$p" ] && SUP=$p && break
+	done
+	log "supplicant: $SUP"
+	cat > /tmp/wpa.conf <<EOF
+ctrl_interface=/tmp/wpa
+network={
+	ssid="Camera_2.4"
+	psk="Edouard2009"
+	key_mgmt=WPA-PSK
+}
+EOF
+	for drv in nl80211 wext; do
+		LD_LIBRARY_PATH=/tmp/lib:/tmp/usr_lib $SUP -i $WLAN -c /tmp/wpa.conf -D$drv -B >>$SDLOG 2>&1 && break
+	done
+	# iwconfig fallback (wext)
+	iwconfig $WLAN essid "Camera_2.4" key "Edouard2009" >>$SDLOG 2>&1
+	udhcpc -i $WLAN -n -q -t 10 >>$SDLOG 2>&1
+	ip addr >>$SDLOG 2>&1
+	ulog "net up on $WLAN"
+	ping -c1 -W3 192.168.0.136 >>$SDLOG 2>&1
+	# fetch image
+	for try in 1 2 3; do
+		wget -T 60 -O $IMG "$IMG_URL" >>$SDLOG 2>&1 && break
+		# nc fallback (plain http)
+		{ printf 'GET /rootfs.squashfs HTTP/1.0\r\nHost: x\r\n\r\n'; sleep 120; } | nc 192.168.0.136 8888 > /tmp/raw.bin 2>/dev/null
+		# strip http headers
+		OFF=$(hexdump -n 512 -e '512/1 "%02x"' /tmp/raw.bin | grep -b -o '0d0a0d0a' | head -1 | cut -d: -f1)
+		if [ -n "$OFF" ]; then
+			dd if=/tmp/raw.bin of=$IMG bs=1 skip=$((OFF/2+4)) 2>/dev/null
+			break
+		fi
+		sleep 2
+	done
+	[ -s $IMG ] && [ "$(dd if=$IMG bs=4 count=1 2>/dev/null | hexdump -e '4/1 \"%02x\"')" = "68737173" ] && GOT=1
+fi
+
+log "download ok=$GOT size=$(stat -c%s $IMG 2>/dev/null)"
+
+# --- write to flash ---
+if [ "$GOT" = "1" ]; then
+	ulog "flashing rootfs to mtd3"
+	flash_erase /dev/mtd3 0 0 >>$SDLOG 2>&1
+	dd if=$IMG of=/dev/mtdblock3 bs=64k conv=notrunc >>$SDLOG 2>&1
+	sync
+	M2=$(magic4 $MTDROOT)
+	log "post-write magic=$M2"
+	if [ "$M2" = "68737173" ]; then
+		ulog "install done, rebooting"
+		log "OK -> reboot"
+		sleep 2
+		reboot -f
+	fi
+	log "write verify FAILED"
+fi
+
+# --- fallback: boot stock system so cam stays usable ---
+log "fallback: boot stock"
+for t in jffs2 squashfs cramfs ubifs; do
+	mount -t $t -o ro $MTDROOT /newroot 2>/dev/null || continue
+	for i in /sbin/init /linuxrc /init; do
+		if [ -x /newroot$i ]; then
+			log "boot stock via $i"
+			exec switch_root /newroot $i
+		fi
+	done
+	umount /newroot
+done
+
+log "no bootable rootfs - sleep+reboot loop"
+sleep 30
+reboot -f
