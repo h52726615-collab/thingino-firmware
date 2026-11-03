@@ -1,4 +1,6 @@
 name: firmware-master
+permissions:
+  contents: write
 on:
   workflow_dispatch:
     inputs:
