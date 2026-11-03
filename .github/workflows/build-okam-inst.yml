@@ -44,7 +44,7 @@ jobs:
 
       - name: Build firmware
         run: |
-          BOARD=okam_bw4g_inst make fast WORKFLOW=1
+          BOARD=okam_bw4g_inst GROUP=exp make fast WORKFLOW=1
 
       - name: Find firmware artifacts
         run: |
