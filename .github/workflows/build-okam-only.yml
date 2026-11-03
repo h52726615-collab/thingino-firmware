@@ -1,0 +1,131 @@
+name: build-okam-only
+permissions:
+  contents: write
+on:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Debug: Generate dummy image files'
+        required: false
+        default: false
+
+env:
+  BR2_DL_DIR: ~/dl
+  FORCE_UNSAFE_CONFIGURE: 1
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  TAG_NAME: master
+  TERM: linux
+  TZ: UTC
+  BUILDSCOPE_VERSION: v0.1.9
+
+jobs:
+  buildroot:
+    name: okam_bw4g_t23zn_os02n10_aic8800s
+    runs-on: ubuntu-26.04-arm
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: debian:forky
+    steps:
+      - name: Install GitHub CLI to container
+        run: |
+          apt-get update
+          apt-get install -y curl
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.d/github-cli.list > /dev/null
+
+      - name: Update package manager sources
+        run: apt-get update
+
+      - name: Install build dependencies
+        run: |
+          apt-get install -y --no-install-recommends --no-install-suggests autoconf build-essential bc cmake cpio curl ca-certificates dosfstools file git gh make gawk jq lzop m4 mtools p7zip-full parted perl python3 python3-gmpy2 python3-setuptools procps rsync tzdata u-boot-tools unzip wget libgmp-dev libncurses-dev swig python3-dev libssl-dev
+
+      - name: Set timezone
+        run: |
+          ln -sf /usr/share/zoneinfo/${{ env.TZ }} /etc/localtime
+          echo ${{ env.TZ }} > /etc/timezone
+          DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive tzdata
+
+      - name: Setup gh workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Checkout repository source
+        uses: actions/checkout@v5
+        with:
+          submodules: 'true'
+          ref: "master"
+          fetch-depth: "1"
+
+      - name: Configure environment variables
+        id: env
+        run: |
+          echo "GIT_HASH=$(git rev-parse --short ${GITHUB_SHA})" >> $GITHUB_ENV
+          echo "GIT_HASH=$(git rev-parse --short ${GITHUB_SHA})" >> $GITHUB_OUTPUT
+
+      - name: Setup cache directories
+        run: |
+          mkdir -p ~/.buildroot-ccache
+          mkdir -p ~/dl
+
+      - name: Build firmware
+        if: ${{ github.event.inputs.debug_enabled != 'true' }}
+        run: |
+          BOARD=okam_bw4g_t23zn_os02n10_aic8800s make fast WORKFLOW=1
+          TIME=$(date -d @${SECONDS} +%M:%S)
+          echo "TIME=${TIME}" >> ${GITHUB_ENV}
+
+      - name: Debug build (dummy images)
+        if: ${{ github.event.inputs.debug_enabled == 'true' }}
+        run: |
+          echo "Debug mode: skipping actual build"
+          mkdir -p output
+          dd if=/dev/urandom of=output/full.bin bs=1M count=8 2>/dev/null || true
+          dd if=/dev/urandom of=output/kernel.bin bs=1M count=2 2>/dev/null || true
+          dd if=/dev/urandom of=output/rootfs.squashfs bs=1M count=4 2>/dev/null || true
+
+      - name: Find firmware artifacts
+        id: find
+        run: |
+          FULL_FW=$(find . -name "full.bin" -path "*/output/*" | head -1)
+          FULL_FW_UBOOT=$(find . -name "uboot.bin" -path "*/output/*" | head -1)
+          FULL_FW_KERNEL=$(find . -name "kernel.bin" -path "*/output/*" | head -1)
+          FULL_FW_ROOTFS=$(find . -name "rootfs.squashfs" -path "*/output/*" | head -1)
+          FULL_FW_ROOTFS_TAR=$(find . -name "rootfs.tar" -path "*/output/*" | head -1)
+          FULL_FW_SHA=$(find . -name "full.bin.sha" -path "*/output/*" | head -1)
+          UPDATE_FW=$(find . -name "autoupdate-full.bin" -path "*/output/*" | head -1)
+          UPDATE_FW_SHA=$(find . -name "autoupdate-full.bin.sha" -path "*/output/*" | head -1)
+          echo "FULL_FW=${FULL_FW}" >> $GITHUB_ENV
+          echo "FULL_FW_UBOOT=${FULL_FW_UBOOT}" >> $GITHUB_ENV
+          echo "FULL_FW_KERNEL=${FULL_FW_KERNEL}" >> $GITHUB_ENV
+          echo "FULL_FW_ROOTFS=${FULL_FW_ROOTFS}" >> $GITHUB_ENV
+          echo "FULL_FW_ROOTFS_TAR=${FULL_FW_ROOTFS_TAR}" >> $GITHUB_ENV
+          echo "FULL_FW_SHA=${FULL_FW_SHA}" >> $GITHUB_ENV
+          echo "UPDATE_FW=${UPDATE_FW}" >> $GITHUB_ENV
+          echo "UPDATE_FW_SHA=${UPDATE_FW_SHA}" >> $GITHUB_ENV
+          echo "Found files:"
+          find . -name "*.bin" -path "*/output/*" -o -name "*.squashfs" -path "*/output/*" -o -name "*.tar" -path "*/output/*" | head -20
+
+      - name: Upload compiled firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: thingino-okam_bw4g_t23zn_os02n10_aic8800s-firmware
+          path: |
+            ${{ env.FULL_FW }}
+            ${{ env.FULL_FW_UBOOT }}
+            ${{ env.FULL_FW_KERNEL }}
+            ${{ env.FULL_FW_ROOTFS }}
+            ${{ env.FULL_FW_ROOTFS_TAR }}
+            ${{ env.FULL_FW_SHA }}
+            ${{ env.UPDATE_FW }}
+            ${{ env.UPDATE_FW_SHA }}
+          if-no-files-found: warn
+
+      - name: Upload all output files
+        uses: actions/upload-artifact@v4
+        with:
+          name: thingino-okam_bw4g_t23zn_os02n10_aic8800s-all
+          path: output/
+          if-no-files-found: warn
