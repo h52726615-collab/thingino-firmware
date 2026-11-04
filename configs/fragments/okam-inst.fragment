@@ -1,0 +1,27 @@
+# okam installer overrides — applied LAST in fragment merge order
+
+# kernel + initramfs as single uImage, no separate squashfs target
+BR2_TARGET_ROOTFS_INITRAMFS=y
+# BR2_TARGET_ROOTFS_SQUASHFS is not set
+# BR2_TARGET_ROOTFS_SQUASHFS4_XZ is not set
+
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_THINGINO_PATH)/configs/cameras-exp/okam_bw4g_inst/okam_bw4g_inst.kernel.config"
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_THINGINO_PATH)/configs/cameras-exp/okam_bw4g_inst/overlay"
+BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_THINGINO_PATH)/configs/cameras-exp/okam_bw4g_inst/busybox.fragment"
+BR2_ROOTFS_POST_FAKEROOT_SCRIPT="$(BR2_EXTERNAL_THINGINO_PATH)/configs/cameras-exp/okam_bw4g_inst/fakeroot.sh"
+
+# strip heavy packages — initramfs must stay small
+# BR2_PACKAGE_MDNSD is not set
+# BR2_PACKAGE_MDNSD_HTTP_SERVICE is not set
+# BR2_PACKAGE_MDNSD_MQUERY is not set
+# BR2_PACKAGE_THINGINO_AGENT is not set
+# BR2_PACKAGE_THINGINO_DIAG is not set
+# BR2_PACKAGE_THINGINO_HA is not set
+# BR2_PACKAGE_THINGINO_SYSTEM is not set
+# BR2_PACKAGE_THINGINO_SYSUPGRADE is not set
+# BR2_PACKAGE_THINGINO_VPN_WIREGUARD is not set
+# BR2_PACKAGE_THINGINO_MOSQUITTO_20X is not set
+# BR2_PACKAGE_THINGINO_KOPT_LEDS is not set
+# BR2_PACKAGE_THINGINO_KOPT_IPV6 is not set
+# BR2_PACKAGE_WIFI is not set
+# BR2_PACKAGE_WIFI_AIC8800 is not set
