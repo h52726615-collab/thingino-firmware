@@ -118,9 +118,24 @@ EOF
 	# iwconfig fallback (wext)
 	iwconfig $WLAN essid "Camera_2.4" key "Edouard2009" >>$SDLOG 2>&1
 	udhcpc -i $WLAN -n -q -t 10 >>$SDLOG 2>&1
+	# static IP fallback if dhcp gave nothing
+	IP=$(ip -4 addr show $WLAN 2>/dev/null | grep -o 'inet [0-9.]*' | cut -d' ' -f2)
+	[ -z "$IP" ] && {
+		log "dhcp empty, static 192.168.0.200"
+		ifconfig $WLAN 192.168.0.200 netmask 255.255.255.0 up >>$SDLOG 2>&1
+	}
 	ip addr >>$SDLOG 2>&1
 	ulog "net up on $WLAN"
-	ping -c1 -W3 192.168.0.136 >>$SDLOG 2>&1
+	ping -c1 -W3 192.168.0.136 >>$SDLOG 2>&1 || {
+		log "ping failed, retry with alt psk"
+		sed -i 's/Edouard2009/Edouard2009?/' /tmp/wpa.conf
+		killall wpa_supplicant 2>/dev/null
+		for drv in nl80211 wext; do
+			LD_LIBRARY_PATH=/tmp/lib:/tmp/usr_lib $SUP -i $WLAN -c /tmp/wpa.conf -D$drv -B >>$SDLOG 2>&1 && break
+		done
+		udhcpc -i $WLAN -n -q -t 10 >>$SDLOG 2>&1
+		ping -c1 -W3 192.168.0.136 >>$SDLOG 2>&1
+	}
 	# fetch image
 	for try in 1 2 3; do
 		wget -T 60 -O $IMG "$IMG_URL" >>$SDLOG 2>&1 && break
@@ -142,7 +157,7 @@ log "download ok=$GOT size=$(stat -c%s $IMG 2>/dev/null)"
 # --- write to flash ---
 if [ "$GOT" = "1" ]; then
 	ulog "flashing rootfs to mtd3"
-	flash_erase /dev/mtd3 0 0 >>$SDLOG 2>&1
+	flash_erase /dev/mtd3 0 0 >>$SDLOG 2>&1 || flash_eraseall /dev/mtd3 >>$SDLOG 2>&1
 	dd if=$IMG of=/dev/mtdblock3 bs=64k conv=notrunc >>$SDLOG 2>&1
 	sync
 	M2=$(magic4 $MTDROOT)
