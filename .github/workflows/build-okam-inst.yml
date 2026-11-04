@@ -46,6 +46,49 @@ jobs:
         run: |
           BOARD=okam_bw4g_inst GROUP=exp make fast WORKFLOW=1
 
+      - name: Embed installer initramfs into kernel
+        run: |
+          set -e
+          OUT=$(echo output/master/okam_bw4g_inst-*)
+          TGT=$OUT/target
+          KDIR=$(echo $OUT/build/linux-*)
+          SPEC=$OUT/initramfs.list
+          : > $SPEC
+          emit() { echo "$*" >> $SPEC; }
+          for d in / /dev /bin /sbin /lib /proc /sys /tmp /mnt /newroot /stock /sd /etc /modules; do
+            emit "dir $d 755 0 0"
+          done
+          emit "nod /dev/console 0600 0 0 c 5 1"
+          emit "nod /dev/null 0666 0 0 c 1 3"
+          emit "nod /dev/kmsg 0666 0 0 c 1 11"
+          emit "file /init $TGT/init 755 0 0"
+          emit "file /linuxrc $TGT/linuxrc 755 0 0"
+          emit "file /bin/busybox $TGT/bin/busybox 755 0 0"
+          for f in $TGT/lib/*.so $TGT/lib/*.so.*; do
+            [ -f "$f" ] && emit "file /lib/$(basename $f) $f 755 0 0"
+          done
+          [ -f $TGT/etc/passwd ] && emit "file /etc/passwd $TGT/etc/passwd 644 0 0"
+          [ -f $TGT/etc/group ] && emit "file /etc/group $TGT/etc/group 644 0 0"
+          for s in usr/share/udhcpc/default.script etc/udhcpc/default.script; do
+            if [ -f "$TGT/$s" ]; then
+              emit "dir $(dirname /$s) 755 0 0"
+              emit "file /$s $TGT/$s 755 0 0"
+            fi
+          done
+          for b in usr/sbin/flash_erase sbin/flash_erase usr/sbin/mtd_debug usr/sbin/wpa_supplicant sbin/wpa_supplicant usr/bin/wpa_supplicant; do
+            [ -f "$TGT/$b" ] && [ ! -L "$TGT/$b" ] && emit "file /$b $TGT/$b 755 0 0"
+          done
+          APPS="sh ash mount umount mkdir mknod mdev cat echo printf dd hexdump stat sync sleep reboot halt poweroff ls cp mv rm ln chmod chown find grep sed awk head tail cut sort tr basename dirname uname dmesg env true false touch date free kill killall ps ping ifconfig route ip udhcpc wget nc insmod rmmod modprobe lsmod switch_root flashcp flash_eraseall stty timeout blkid hostname readlink xargs which test"
+          for a in $APPS; do emit "slink /bin/$a busybox 777 0 0"; done
+          emit "slink /bin/[ busybox 777 0 0"
+          for a in ifconfig route udhcpc insmod rmmod modprobe lsmod mdev switch_root reboot halt poweroff flashcp flash_eraseall init getty klogd; do
+            emit "slink /sbin/$a busybox 777 0 0"
+          done
+          $KDIR/usr/gen_init_cpio $SPEC | xz -9 --check=crc32 -T0 > $OUT/images/rootfs.cpio
+          ls -la $OUT/images/rootfs.cpio
+          rm -f $KDIR/usr/initramfs_data.cpio* $KDIR/usr/initramfs_data.o $KDIR/usr/initramfs_data.S $KDIR/vmlinux
+          make -C buildroot BR2_EXTERNAL=$GITHUB_WORKSPACE O=$(readlink -f $OUT) BR2_DL_DIR=$HOME/dl linux-rebuild
+          ls -la $OUT/images/uImage
       - name: Find firmware artifacts
         run: |
           ls -la ./output/master/*/images/ 2>/dev/null || true
