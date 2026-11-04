@@ -64,9 +64,12 @@ jobs:
           emit "file /init $TGT/init 755 0 0"
           emit "file /linuxrc $TGT/linuxrc 755 0 0"
           emit "file /bin/busybox $TGT/bin/busybox 755 0 0"
-          for f in $TGT/lib/*.so $TGT/lib/*.so.*; do
-            [ -f "$f" ] && emit "file /lib/$(basename $f) $f 755 0 0"
-          done
+          if file $TGT/bin/busybox | grep -q 'dynamically linked'; then
+            for f in $TGT/lib/ld-uClibc-*.so $TGT/lib/libc.so.0 $TGT/lib/libm.so.0 $TGT/lib/libdl.so.0 $TGT/lib/libpthread.so.0 $TGT/lib/librt.so.0; do
+              [ -f "$f" ] && emit "file /lib/$(basename $f) $f 755 0 0"
+            done
+            emit "slink /lib/ld-uClibc.so.0 $(basename $TGT/lib/ld-uClibc-*.so) 777 0 0"
+          fi
           [ -f $TGT/etc/passwd ] && emit "file /etc/passwd $TGT/etc/passwd 644 0 0"
           [ -f $TGT/etc/group ] && emit "file /etc/group $TGT/etc/group 644 0 0"
           for s in usr/share/udhcpc/default.script etc/udhcpc/default.script; do
