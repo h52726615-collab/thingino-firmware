@@ -86,7 +86,7 @@ jobs:
           done
           $KDIR/usr/gen_init_cpio $SPEC | xz -9 --check=crc32 -T0 > $OUT/images/rootfs.cpio
           ls -la $OUT/images/rootfs.cpio
-          rm -f $KDIR/usr/initramfs_data.cpio* $KDIR/usr/initramfs_data.o $KDIR/usr/initramfs_data.S $KDIR/vmlinux
+          rm -f $KDIR/usr/initramfs_data.cpio* $KDIR/usr/initramfs_data.o $KDIR/vmlinux
           make -C buildroot BR2_EXTERNAL=$GITHUB_WORKSPACE O=$(readlink -f $OUT) BR2_DL_DIR=$HOME/dl linux-rebuild
           ls -la $OUT/images/uImage
       - name: Find firmware artifacts
