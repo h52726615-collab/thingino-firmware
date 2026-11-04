@@ -1,0 +1,3 @@
+#!/bin/sh
+# disabled in installer initramfs image
+exit 0
